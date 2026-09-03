@@ -1,0 +1,10 @@
+assets/
+.github/
+.vscode/
+.idea/
+node_modules/
+coverage/
+tsconfig.json
+tsup.config.ts
+*.tgz
+.DS_Store

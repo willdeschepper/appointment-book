@@ -1,0 +1,62 @@
+{
+  "name": "appointment-book",
+  "version": "0.1.0",
+  "description": "A customizable agenda / timeline scheduling component for React Native",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "react-native",
+    "agenda",
+    "calendar",
+    "scheduler",
+    "appointment",
+    "timeline",
+    "events"
+  ],
+  "author": "Wiliam De Schepper (https://github.com/willdeschepper)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/willdeschepper/appointment-book.git"
+  },
+  "bugs": {
+    "url": "https://github.com/willdeschepper/appointment-book/issues"
+  },
+  "homepage": "https://github.com/willdeschepper/appointment-book#readme",
+  "peerDependencies": {
+    "react": ">=17.0.0",
+    "react-native": ">=0.70.0"
+  },
+  "dependencies": {
+    "@react-native-community/datetimepicker": "^8.4.2",
+    "react-native-safe-area-context": "^5.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "react-native": "^0.79.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.3"
+  }
+}
