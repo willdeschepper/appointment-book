@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EventViewModalProps } from '../types';
+import { getTimeRange } from '../utils/timeHelpers';
 
 export const EventViewModal: React.FC<EventViewModalProps> = ({
   visible,
@@ -26,21 +27,8 @@ export const EventViewModal: React.FC<EventViewModalProps> = ({
   };
 
   const formatDuration = () => {
-    const start = event.startTime;
-    const end = event.endTime;
-    
-    const startParts = start.replace(/[^\d:]/g, '').split(':');
-    const endParts = end.replace(/[^\d:]/g, '').split(':');
-    
-    let startMinutes = parseInt(startParts[0]) * 60 + parseInt(startParts[1] || '0');
-    let endMinutes = parseInt(endParts[0]) * 60 + parseInt(endParts[1] || '0');
-    
-    if (start.includes('PM') && !start.includes('12')) startMinutes += 12 * 60;
-    if (end.includes('PM') && !end.includes('12')) endMinutes += 12 * 60;
-    if (start.includes('AM') && start.includes('12')) startMinutes -= 12 * 60;
-    if (end.includes('AM') && end.includes('12')) endMinutes -= 12 * 60;
-    
-    const durationMinutes = endMinutes - startMinutes;
+    const { startMinutes, endMinutes } = getTimeRange(event.startTime, event.endTime);
+    const durationMinutes = Math.max(endMinutes - startMinutes, 0);
     const hours = Math.floor(durationMinutes / 60);
     const minutes = durationMinutes % 60;
     

@@ -8,6 +8,12 @@ export type {
     TimeSlot
 } from './types';
 export {
-    addDays, formatTime, getDateInfo, getTodayISO
+    addDays,
+    createEventId,
+    formatTime,
+    formatTimeFromMinutes,
+    getDateInfo,
+    getTimeRange,
+    getTodayISO,
+    timeToMinutes,
 } from './utils/timeHelpers';
-

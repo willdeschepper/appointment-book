@@ -5,12 +5,36 @@ export const formatTime = (hour: number, minute: number = 0, format: '12' | '24'
   if (format === '24') {
     return `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
   }
-  
-  const period = hour >= 12 ? 'PM' : 'AM';
-  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+
+  const clockHour = hour === 24 && minute === 0 ? 0 : ((hour % 24) + 24) % 24;
+  const period = clockHour >= 12 ? 'PM' : 'AM';
+  const displayHour = clockHour === 0 ? 12 : clockHour > 12 ? clockHour - 12 : clockHour;
   const displayMinute = minute === 0 ? '' : `:${minute.toString().padStart(2, '0')}`;
   
   return `${displayHour}${displayMinute} ${period}`;
+};
+
+export const formatTimeFromMinutes = (
+  totalMinutes: number,
+  format: '12' | '24' = '12',
+): string => {
+  if (!Number.isFinite(totalMinutes)) {
+    return formatTime(0, 0, format);
+  }
+
+  const roundedMinutes = Math.trunc(totalMinutes);
+
+  // Preserve the useful end-of-day representation instead of rendering
+  // 00:00 when an event ends exactly at midnight.
+  if (roundedMinutes === 24 * 60) {
+    return format === '24' ? '24:00' : '12:00 AM';
+  }
+
+  const minutesInDay = ((roundedMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const hour = Math.floor(minutesInDay / 60);
+  const minute = minutesInDay % 60;
+
+  return formatTime(hour, minute, format);
 };
 
 export const parseTime = (timeString: string): { hour: number; minute: number } => {
@@ -43,19 +67,48 @@ export const parseTime = (timeString: string): { hour: number; minute: number } 
   return { hour, minute };
 };
 
+export const timeToMinutes = (timeString: string): number => {
+  const { hour, minute } = parseTime(timeString);
+  return hour * 60 + minute;
+};
+
+export interface TimeRange {
+  startMinutes: number;
+  endMinutes: number;
+}
+
+export const getTimeRange = (startTime: string, endTime: string): TimeRange => {
+  const startMinutes = timeToMinutes(startTime);
+  let endMinutes = timeToMinutes(endTime);
+
+  // In a single-day agenda, 12:00 AM after a late-evening start represents
+  // the end of the day rather than the beginning of the same day.
+  if (endMinutes === 0 && startMinutes > 0) {
+    endMinutes = 24 * 60;
+  }
+
+  return { startMinutes, endMinutes };
+};
+
+export const createEventId = (): string => {
+  const cryptoObject = globalThis.crypto;
+
+  if (typeof cryptoObject?.randomUUID === 'function') {
+    return `event_${cryptoObject.randomUUID()}`;
+  }
+
+  return `event_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 11)}`;
+};
+
 export const isTimeInRange = (
   currentHour: number,
   currentMinute: number,
   item: ScheduleItem
 ): boolean => {
-  const startTime = parseTime(item.startTime);
-  const endTime = parseTime(item.endTime);
-  
   const currentTotalMinutes = currentHour * 60 + currentMinute;
-  const startTotalMinutes = startTime.hour * 60 + startTime.minute;
-  const endTotalMinutes = endTime.hour * 60 + endTime.minute;
+  const { startMinutes, endMinutes } = getTimeRange(item.startTime, item.endTime);
   
-  return currentTotalMinutes >= startTotalMinutes && currentTotalMinutes < endTotalMinutes;
+  return currentTotalMinutes >= startMinutes && currentTotalMinutes < endMinutes;
 };
 
 export const generateTimeSlots = (

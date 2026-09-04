@@ -14,11 +14,7 @@ npm install appointment-book
 yarn add appointment-book
 ```
 
-### Peer dependencies
-
-```sh
-npm install @react-native-community/datetimepicker react-native-safe-area-context
-```
+### Required dependencies
 
 | Package                                  | Version |
 | ---------------------------------------- | ------- |
@@ -27,8 +23,9 @@ npm install @react-native-community/datetimepicker react-native-safe-area-contex
 | `@react-native-community/datetimepicker` | ^8.4.2  |
 | `react-native-safe-area-context`         | ^5.4.0  |
 
-Wrap your app in `SafeAreaProvider` (from `react-native-safe-area-context`) if you
-have not already.
+`@react-native-community/datetimepicker` and `react-native-safe-area-context` are
+installed with the package. Wrap your app in `SafeAreaProvider` if you have not
+already.
 
 ## Usage
 
@@ -114,6 +111,14 @@ interface DaySchedule {
 `AgendaTheme` exposes 20+ color keys (header, grid lines, current-hour highlight,
 FAB, save/cancel buttons, event color presets, …). Pass any subset via `theme`.
 
+The agenda keeps a local view of the schedule and synchronizes it whenever the
+`schedule` prop changes. A day that is not present is created when it becomes
+the active day, so adding the first event on a new day is persisted through
+`onScheduleChange`.
+
+Event blocks are laid out from the current window width. Rotating the device or
+resizing the window recalculates the columns without remounting the component.
+
 ### Helpers
 
 ```ts
@@ -130,10 +135,12 @@ getDateInfo('2026-09-03') // { dayName, formattedDate, shortDate }
 ```sh
 npm install
 npm run typecheck
+npm test
 npm run build      # bundles to dist/ (cjs + esm + d.ts) via tsup
 ```
+
+`npm run check` runs the type check and the test suite together.
 
 ## License
 
 MIT — © 2025 Wiliam De Schepper, © 2026 Wiliam De Schepper. See `LICENSE`.
-# appointment-book
