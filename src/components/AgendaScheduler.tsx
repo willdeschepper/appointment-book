@@ -1,24 +1,54 @@
 //AgendaScheduler.tsx
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Dimensions,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  View
+  View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AgendaProps, AgendaTheme, DaySchedule, ScheduleItem } from '../types';
-import { addDays, formatTime, getDateInfo, getTodayISO, parseTime } from '../utils/timeHelpers';
+import { calculateEventLayouts } from '../utils/eventLayout';
+import {
+  addDays,
+  createEventId,
+  formatTime,
+  formatTimeFromMinutes,
+  getDateInfo,
+  getTimeRange,
+  getTodayISO,
+  parseTime,
+  timeToMinutes,
+} from '../utils/timeHelpers';
 import { DatePickerModal } from './DatePickerModal';
 import { EventFormModal } from './EventFormModal';
 import { EventViewModal } from './EventViewModal';
 import { FloatingEventBlock } from './FloatingEventBlock';
 import { HourTimelineView } from './HourTimelineView';
 
-const { width: screenWidth } = Dimensions.get('window');
 const TIME_LABEL_WIDTH = 80;
+
+const createEmptyDay = (date: string): DaySchedule => {
+  const dateInfo = getDateInfo(date);
+
+  return {
+    date,
+    dayName: dateInfo.dayName || 'Unknown',
+    items: [],
+  };
+};
+
+const ensureDay = (schedule: DaySchedule[], date: string): DaySchedule[] => {
+  if (schedule.some((day) => day.date === date)) {
+    return schedule;
+  }
+
+  return [...schedule, createEmptyDay(date)].sort((first, second) =>
+    first.date.localeCompare(second.date),
+  );
+};
 
 const defaultTheme: AgendaTheme = {
   backgroundColor: '#ffffff',
@@ -71,8 +101,9 @@ export const AgendaScheduler: React.FC<AgendaProps> = ({
   const endHour = 23;
   const today = getTodayISO();
   const mergedTheme = { ...defaultTheme, ...theme };
+  const { width: windowWidth } = useWindowDimensions();
   
-  const [internalSchedule, setInternalSchedule] = useState<DaySchedule[]>(schedule);
+  const [internalSchedule, setInternalSchedule] = useState<DaySchedule[]>(() => schedule ?? []);
   const [currentDate, setCurrentDate] = useState(initialDate || today);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
@@ -84,6 +115,14 @@ export const AgendaScheduler: React.FC<AgendaProps> = ({
   const [viewingEvent, setViewingEvent] = useState<ScheduleItem | undefined>();
 
   const scrollViewRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    setInternalSchedule(schedule ?? []);
+  }, [schedule]);
+
+  useEffect(() => {
+    setInternalSchedule((previousSchedule) => ensureDay(previousSchedule, currentDate));
+  }, [currentDate]);
 
   const getCurrentHour = (): number => {
     const now = new Date();
@@ -97,72 +136,26 @@ export const AgendaScheduler: React.FC<AgendaProps> = ({
 
   const handleFABPress = () => {
     const defaultStartHour = isToday ? Math.max(currentHour, startHour) : startHour;
-    const defaultEndHour = Math.min(defaultStartHour + 1, endHour);
-    
+    const defaultStartMinutes = defaultStartHour * 60;
+    const defaultEndMinutes = Math.min(defaultStartMinutes + 60, (endHour + 1) * 60);
+
     setSelectedTimeRange({
-      startTime: formatTime(defaultStartHour, 0, timeFormat),
-      endTime: formatTime(defaultEndHour, 0, timeFormat)
+      startTime: formatTimeFromMinutes(defaultStartMinutes, timeFormat),
+      endTime: formatTimeFromMinutes(defaultEndMinutes, timeFormat),
     });
     setEditingEvent(undefined);
     setShowEventForm(true);
   };
 
-  const getOrCreateDayData = (date: string): DaySchedule => {
-    try {
-      if (!date || typeof date !== 'string' || !date.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        const fallbackDate = getTodayISO();
-        return {
-          date: fallbackDate,
-          dayName: getDateInfo(fallbackDate)?.dayName || 'Today',
-          items: []
-        };
-      }
-
-      const existingDay = internalSchedule?.find(day => day?.date === date);
-      if (existingDay) {
-        return existingDay;
-      }
-      
-      const dateInfo = getDateInfo(date);
-      const newDay: DaySchedule = {
-        date,
-        dayName: dateInfo?.dayName || 'Unknown',
-        items: []
-      };
-      
-      setInternalSchedule(prev => {
-        const newSchedule = [...(prev || []), newDay];
-        return newSchedule.sort((a, b) => (a?.date || '').localeCompare(b?.date || ''));
-      });
-      
-      return newDay;
-    } catch (error) {
-      const fallbackDate = getTodayISO();
-      return {
-        date: fallbackDate,
-        dayName: 'Today',
-        items: []
-      };
-    }
-  };
-
   const currentDayData = useMemo(() => {
-    try {
-      return getOrCreateDayData(currentDate);
-    } catch (error) {
-      return {
-        date: getTodayISO(),
-        dayName: 'Today',
-        items: []
-      };
-    }
+    return internalSchedule.find((day) => day.date === currentDate) ?? createEmptyDay(currentDate);
   }, [currentDate, internalSchedule]);
 
   const isToday = currentDate === today;
 
   useEffect(() => {
     if (isToday && scrollViewRef.current) {
-      setTimeout(() => {
+      const timeout = setTimeout(() => {
         const currentHourIndex = Math.max(0, currentHour - startHour);
         const scrollPosition = currentHourIndex * cellHeight;
         
@@ -171,141 +164,12 @@ export const AgendaScheduler: React.FC<AgendaProps> = ({
           animated: true,
         });
       }, 300);
+
+      return () => clearTimeout(timeout);
     }
+
+    return undefined;
   }, [currentDate, isToday, currentHour, startHour, cellHeight]);
-
-const calculateEventLayout = (events: ScheduleItem[]) => {
-  const eventLayouts: Array<{
-    event: ScheduleItem;
-    top: number;
-    height: number;
-    left: number;
-    width: number;
-    column: number;
-    totalColumns: number;
-  }> = [];
-
-  const sortedEvents = [...events].sort((a, b) => {
-    const aStart = parseTime(a.startTime);
-    const bStart = parseTime(b.startTime);
-    return (aStart.hour * 60 + aStart.minute) - (bStart.hour * 60 + bStart.minute);
-  });
-
-  const eventPositions = sortedEvents.map(event => {
-    const start = parseTime(event.startTime);
-    const end = parseTime(event.endTime);
-    
-    const startHourIndex = start.hour - startHour;
-    const endHourIndex = end.hour - startHour;
-    
-    const top = startHourIndex * cellHeight + (start.minute / 60) * cellHeight;
-    const bottom = endHourIndex * cellHeight + (end.minute / 60) * cellHeight;
-    const height = Math.max(bottom - top, 32);
-    
-    return {
-      event,
-      startMinute: start.hour * 60 + start.minute,
-      endMinute: end.hour * 60 + end.minute,
-      top,
-      height,
-      overlaps: [] as number[],
-    };
-  });
-
-  for (let i = 0; i < eventPositions.length; i++) {
-    for (let j = i + 1; j < eventPositions.length; j++) {
-      const event1 = eventPositions[i];
-      const event2 = eventPositions[j];
-      
-      if (event1.startMinute < event2.endMinute && event2.startMinute < event1.endMinute) {
-        event1.overlaps.push(j);
-        event2.overlaps.push(i);
-      }
-    }
-  }
-
-  const processedEvents = new Set<number>();
-  eventPositions.forEach((eventPos, index) => {
-    if (processedEvents.has(index)) return;
-    
-    const overlapGroup = new Set([index]);
-    const toProcess = [index];
-    
-    while (toProcess.length > 0) {
-      const currentIndex = toProcess.pop()!;
-      eventPositions[currentIndex].overlaps.forEach(overlapIndex => {
-        if (!overlapGroup.has(overlapIndex)) {
-          overlapGroup.add(overlapIndex);
-          toProcess.push(overlapIndex);
-        }
-      });
-    }
-    
-    const groupArray = Array.from(overlapGroup).sort((a, b) => 
-      eventPositions[a].startMinute - eventPositions[b].startMinute
-    );
-
-    const columns: number[][] = [];
-    groupArray.forEach(eventIndex => {
-      const eventPos = eventPositions[eventIndex];
-      let assignedColumn = -1;
-      
-      for (let col = 0; col < columns.length; col++) {
-        let canFit = true;
-        for (const existingEventIndex of columns[col]) {
-          const existingEvent = eventPositions[existingEventIndex];
-          if (eventPos.startMinute < existingEvent.endMinute && 
-              existingEvent.startMinute < eventPos.endMinute) {
-            canFit = false;
-            break;
-          }
-        }
-        if (canFit) {
-          assignedColumn = col;
-          break;
-        }
-      }
-      
-      if (assignedColumn === -1) {
-        assignedColumn = columns.length;
-        columns.push([]);
-      }
-      
-      columns[assignedColumn].push(eventIndex);
-      processedEvents.add(eventIndex);
-    });
-    
-    const totalColumns = columns.length;
-    const baseWidth = screenWidth - TIME_LABEL_WIDTH; 
-    const columnWidth = baseWidth / totalColumns;
-    
-    groupArray.forEach(eventIndex => {
-      const eventPos = eventPositions[eventIndex];
-      
-      let column = 0;
-      for (let col = 0; col < columns.length; col++) {
-        if (columns[col].includes(eventIndex)) {
-          column = col;
-          break;
-        }
-      }
-      
-      const leftOffset = TIME_LABEL_WIDTH + (column * columnWidth);
-      
-      eventLayouts.push({
-        event: eventPos.event,
-        top: eventPos.top,
-        height: eventPos.height,
-        left: leftOffset,
-        width: columnWidth,
-        column,
-        totalColumns,
-      });
-    });
-  });
-
-  return eventLayouts;
-};
 
   const updateScheduleWithCallbacks = (
     updatedSchedule: DaySchedule[], 
@@ -376,8 +240,10 @@ const calculateEventLayout = (events: ScheduleItem[]) => {
       }
     }
     
-    const startTime = formatTime(defaultStartHour, defaultStartMinute, timeFormat);
-    const endTime = formatTime(defaultStartHour, Math.min(defaultStartMinute + 30, 60), timeFormat);
+    const startTotalMinutes = defaultStartHour * 60 + defaultStartMinute;
+    const endTotalMinutes = Math.min(startTotalMinutes + 30, (endHour + 1) * 60);
+    const startTime = formatTimeFromMinutes(startTotalMinutes, timeFormat);
+    const endTime = formatTimeFromMinutes(endTotalMinutes, timeFormat);
     
     setSelectedTimeRange({ startTime, endTime });
     setEditingEvent(undefined);
@@ -424,33 +290,34 @@ const calculateEventLayout = (events: ScheduleItem[]) => {
           endTime,
         };
         updatedEvents[eventIndex] = finalEvent;
+      } else {
+        return;
       }
     } else {
       action = 'add';
       finalEvent = {
         ...eventData,
-        id: `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: createEventId(),
         startTime,
         endTime,
       };
       updatedEvents.push(finalEvent);
     }
 
-    const updatedSchedule = internalSchedule.map(daySchedule => {
+    const updatedSchedule = ensureDay(internalSchedule, currentDate).map(daySchedule => {
       if (daySchedule.date === currentDate) {
         return {
           ...daySchedule,
-          items: updatedEvents.sort((a, b) => {
-            const aStart = parseTime(a.startTime);
-            const bStart = parseTime(b.startTime);
-            return (aStart.hour * 60 + aStart.minute) - (bStart.hour * 60 + bStart.minute);
-          })
+          items: updatedEvents.sort(
+            (first, second) =>
+              timeToMinutes(first.startTime) - timeToMinutes(second.startTime),
+          ),
         };
       }
       return daySchedule;
     });
 
-    updateScheduleWithCallbacks(updatedSchedule, action, finalEvent!, undefined, currentDate);
+    updateScheduleWithCallbacks(updatedSchedule, action, finalEvent, undefined, currentDate);
     setShowEventForm(false);
     setEditingEvent(undefined);
   };
@@ -459,7 +326,7 @@ const calculateEventLayout = (events: ScheduleItem[]) => {
     if (editingEvent) {
       const updatedEvents = currentDayData.items.filter(e => e.id !== editingEvent.id);
       
-      const updatedSchedule = internalSchedule.map(daySchedule => {
+      const updatedSchedule = ensureDay(internalSchedule, currentDate).map(daySchedule => {
         if (daySchedule.date === currentDate) {
           return {
             ...daySchedule,
@@ -476,13 +343,11 @@ const calculateEventLayout = (events: ScheduleItem[]) => {
   };
 
   const handleHourSave = (hour: number, updatedEvents: ScheduleItem[]) => {
-    const updatedSchedule = internalSchedule.map(daySchedule => {
+    const updatedSchedule = ensureDay(internalSchedule, currentDate).map(daySchedule => {
       if (daySchedule.date === currentDate) {
         const eventsToKeep = daySchedule.items.filter(item => {
-          const start = parseTime(item.startTime);
-          const end = parseTime(item.endTime);
-          const eventStartMinutes = start.hour * 60 + start.minute;
-          const eventEndMinutes = end.hour * 60 + end.minute;
+          const { startMinutes: eventStartMinutes, endMinutes: eventEndMinutes } =
+            getTimeRange(item.startTime, item.endTime);
           const hourStartMinutes = hour * 60;
           const hourEndMinutes = (hour + 1) * 60;
           return !(eventStartMinutes < hourEndMinutes && eventEndMinutes > hourStartMinutes);
@@ -490,11 +355,10 @@ const calculateEventLayout = (events: ScheduleItem[]) => {
         
         const newItems = [...eventsToKeep, ...updatedEvents];
         
-        const sortedItems = newItems.sort((a, b) => {
-          const aStart = parseTime(a.startTime);
-          const bStart = parseTime(b.startTime);
-          return (aStart.hour * 60 + aStart.minute) - (bStart.hour * 60 + bStart.minute);
-        });
+        const sortedItems = newItems.sort(
+          (first, second) =>
+            timeToMinutes(first.startTime) - timeToMinutes(second.startTime),
+        );
 
         return {
           ...daySchedule,
@@ -521,7 +385,17 @@ const calculateEventLayout = (events: ScheduleItem[]) => {
     return slots;
   }, [startHour, endHour, timeFormat, isToday, currentHour]);
 
-  const eventLayouts = calculateEventLayout(currentDayData.items);
+  const eventLayouts = useMemo(
+    () =>
+      calculateEventLayouts(currentDayData.items, {
+        pixelsPerHour: cellHeight,
+        startHour,
+        endHour: endHour + 1,
+        containerWidth: windowWidth,
+        timeLabelWidth: TIME_LABEL_WIDTH,
+      }),
+    [currentDayData.items, cellHeight, startHour, endHour, windowWidth],
+  );
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: mergedTheme.backgroundColor }]}>
@@ -765,10 +639,8 @@ const calculateEventLayout = (events: ScheduleItem[]) => {
           hour={selectedHour}
           date={currentDate}
           events={currentDayData.items.filter(event => {
-            const start = parseTime(event.startTime);
-            const end = parseTime(event.endTime);
-            const eventStartMinutes = start.hour * 60 + start.minute;
-            const eventEndMinutes = end.hour * 60 + end.minute;
+            const { startMinutes: eventStartMinutes, endMinutes: eventEndMinutes } =
+              getTimeRange(event.startTime, event.endTime);
             const hourStartMinutes = selectedHour * 60;
             const hourEndMinutes = (selectedHour + 1) * 60;
             

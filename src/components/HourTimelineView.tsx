@@ -1,22 +1,27 @@
 //HourTimelineView.tsx
 import React, { useEffect, useState } from 'react';
 import {
-  Dimensions,
   Modal,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { HourDetailProps, ScheduleItem } from '../types';
-import { formatTime, parseTime } from '../utils/timeHelpers';
+import { calculateEventLayouts } from '../utils/eventLayout';
+import {
+  createEventId,
+  formatTime,
+  formatTimeFromMinutes,
+  parseTime,
+} from '../utils/timeHelpers';
 import { EventFormModal } from './EventFormModal';
 import { EventViewModal } from './EventViewModal';
 import { FloatingEventBlock } from './FloatingEventBlock';
 
-const { width: screenWidth } = Dimensions.get('window');
 const TIME_LABEL_WIDTH = 80;
 
 export const HourTimelineView: React.FC<HourDetailProps> = ({
@@ -28,6 +33,7 @@ export const HourTimelineView: React.FC<HourDetailProps> = ({
   timeFormat,
   theme
 }) => {
+  const { width: windowWidth } = useWindowDimensions();
   const [editingEvents, setEditingEvents] = useState<ScheduleItem[]>([]);
   const [showEventForm, setShowEventForm] = useState(false);
   const [showEventView, setShowEventView] = useState(false);
@@ -54,10 +60,8 @@ export const HourTimelineView: React.FC<HourDetailProps> = ({
     
     const endMinute = Math.min(startMinute + 15, 60);
     
-    const startTime = formatTime(hour, startMinute, timeFormat);
-    const endTime = endMinute >= 60 
-      ? formatTime(hour + 1, 0, timeFormat)
-      : formatTime(hour, endMinute, timeFormat);
+    const startTime = formatTimeFromMinutes(hour * 60 + startMinute, timeFormat);
+    const endTime = formatTimeFromMinutes(hour * 60 + endMinute, timeFormat);
     
     setSelectedTimeRange({ startTime, endTime });
     setEditingEvent(undefined);
@@ -109,7 +113,7 @@ export const HourTimelineView: React.FC<HourDetailProps> = ({
     } else {
       const newEvent: ScheduleItem = {
         ...eventData,
-        id: `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        id: createEventId(),
         startTime,
         endTime,
       };
@@ -141,139 +145,17 @@ export const HourTimelineView: React.FC<HourDetailProps> = ({
     onSave(hour, editingEvents);
   };
 
-  const calculateEventLayout = (events: ScheduleItem[]) => {
-    const eventLayouts: Array<{
-      event: ScheduleItem;
-      top: number;
-      height: number;
-      left: number;
-      width: number;
-      column: number;
-      totalColumns: number;
-    }> = [];
-
-    const sortedEvents = [...events].sort((a, b) => {
-      const aStart = parseTime(a.startTime);
-      const bStart = parseTime(b.startTime);
-      return (aStart.hour * 60 + aStart.minute) - (bStart.hour * 60 + bStart.minute);
-    });
-
-    const eventPositions = sortedEvents.map(event => {
-      const start = parseTime(event.startTime);
-      const end = parseTime(event.endTime);
-      
-      const startMinute = start.hour === hour ? start.minute : 0;
-      const endMinute = end.hour === hour ? end.minute : 60;
-      
-      const top = (startMinute / 5) * 40;
-      const height = Math.max(((endMinute - startMinute) / 5) * 40, 32);
-      
-      return {
-        event,
-        startMinute,
-        endMinute,
-        top,
-        height,
-        overlaps: [] as number[],
-      };
-    });
-
-    for (let i = 0; i < eventPositions.length; i++) {
-      for (let j = i + 1; j < eventPositions.length; j++) {
-        const event1 = eventPositions[i];
-        const event2 = eventPositions[j];
-        
-        if (event1.startMinute < event2.endMinute && event2.startMinute < event1.endMinute) {
-          event1.overlaps.push(j);
-          event2.overlaps.push(i);
-        }
-      }
-    }
-
-    const processedEvents = new Set<number>();
-    
-    eventPositions.forEach((eventPos, index) => {
-      if (processedEvents.has(index)) return;
-      
-      const overlapGroup = new Set([index]);
-      const toProcess = [index];
-      
-      while (toProcess.length > 0) {
-        const currentIndex = toProcess.pop()!;
-        eventPositions[currentIndex].overlaps.forEach(overlapIndex => {
-          if (!overlapGroup.has(overlapIndex)) {
-            overlapGroup.add(overlapIndex);
-            toProcess.push(overlapIndex);
-          }
-        });
-      }
-      
-      const groupArray = Array.from(overlapGroup).sort((a, b) => 
-        eventPositions[a].startMinute - eventPositions[b].startMinute
-      );
-      
-      const columns: number[][] = [];
-      
-      groupArray.forEach(eventIndex => {
-        const eventPos = eventPositions[eventIndex];
-        let assignedColumn = -1;
-        
-        for (let col = 0; col < columns.length; col++) {
-          let canFit = true;
-          for (const existingEventIndex of columns[col]) {
-            const existingEvent = eventPositions[existingEventIndex];
-            if (eventPos.startMinute < existingEvent.endMinute && 
-                existingEvent.startMinute < eventPos.endMinute) {
-              canFit = false;
-              break;
-            }
-          }
-          if (canFit) {
-            assignedColumn = col;
-            break;
-          }
-        }
-        
-        if (assignedColumn === -1) {
-          assignedColumn = columns.length;
-          columns.push([]);
-        }
-        
-        columns[assignedColumn].push(eventIndex);
-        processedEvents.add(eventIndex);
-      });
-      
-      const totalColumns = columns.length;
-      const baseWidth = screenWidth - TIME_LABEL_WIDTH - 40;
-      const columnWidth = baseWidth / totalColumns;
-      
-      groupArray.forEach(eventIndex => {
-        const eventPos = eventPositions[eventIndex];
-        
-        let column = 0;
-        for (let col = 0; col < columns.length; col++) {
-          if (columns[col].includes(eventIndex)) {
-            column = col;
-            break;
-          }
-        }
-        
-        const leftOffset = TIME_LABEL_WIDTH + 20 + (column * columnWidth);
-        
-        eventLayouts.push({
-          event: eventPos.event,
-          top: eventPos.top + 20,
-          height: eventPos.height,
-          left: leftOffset,
-          width: columnWidth - 2,
-          column,
-          totalColumns,
-        });
-      });
-    });
-
-    return eventLayouts;
-  };
+  const eventLayouts = calculateEventLayouts(editingEvents, {
+    pixelsPerHour: 480,
+    startHour: hour,
+    endHour: hour + 1,
+    containerWidth: windowWidth,
+    timeLabelWidth: TIME_LABEL_WIDTH,
+    leftOffset: TIME_LABEL_WIDTH + 20,
+    widthOffset: TIME_LABEL_WIDTH + 40,
+    topOffset: 20,
+    columnGap: 2,
+  });
 
   return (
     <Modal visible={true} animationType="slide" presentationStyle="pageSheet">
@@ -285,7 +167,7 @@ export const HourTimelineView: React.FC<HourDetailProps> = ({
           
           <View style={styles.headerCenter}>
             <Text style={[styles.headerTitle, { color: theme.headerTextColor }]}>
-              {formatTime(hour, 0, timeFormat)} - {formatTime(hour + 1, 0, timeFormat)}
+              {formatTime(hour, 0, timeFormat)} - {formatTimeFromMinutes((hour + 1) * 60, timeFormat)}
             </Text>
             <Text style={[styles.headerSubtitle, { color: theme.timeTextColor }]}>
               Timeline View
@@ -401,7 +283,7 @@ export const HourTimelineView: React.FC<HourDetailProps> = ({
                 
               </View>
 
-              {calculateEventLayout(editingEvents).map((layout, layoutIndex) => (
+              {eventLayouts.map((layout, layoutIndex) => (
                 <FloatingEventBlock
                   key={`${layout.event.id}_${layoutIndex}`}
                   event={layout.event}

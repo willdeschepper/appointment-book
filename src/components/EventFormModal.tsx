@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { EventFormProps, ScheduleItem } from '../types';
-import { formatTime, parseTime } from '../utils/timeHelpers';
+import { formatTime, getTimeRange, parseTime } from '../utils/timeHelpers';
 
 export const EventFormModal: React.FC<EventFormProps> = ({
   visible,
@@ -143,10 +143,16 @@ export const EventFormModal: React.FC<EventFormProps> = ({
       return;
     }
 
-    const startValue = startHour * 60 + startMinute;
-    const endValue = endHour * 60 + endMinute;
+    const { startMinutes: startValue, endMinutes: endValue } = getTimeRange(
+      startTime,
+      endTime,
+    );
     
-    if (startValue >= endValue) {
+    if (
+      !Number.isFinite(startValue) ||
+      !Number.isFinite(endValue) ||
+      startValue >= endValue
+    ) {
       Alert.alert('Error', 'End time must be after start time');
       return;
     }
